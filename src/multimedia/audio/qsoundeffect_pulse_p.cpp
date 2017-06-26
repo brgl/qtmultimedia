@@ -98,7 +98,6 @@ class PulseDaemon : public QObject
 public:
     PulseDaemon()
         : m_prepared(false)
-        , m_lockCount(0)
     {
         prepare();
     }
@@ -122,18 +121,14 @@ public:
 
     inline void lock()
     {
-        if (m_mainLoop) {
-            if (++m_lockCount == 1)
-                pa_threaded_mainloop_lock(m_mainLoop);
-        }
+        if (m_mainLoop)
+            pa_threaded_mainloop_lock(m_mainLoop);
     }
 
     inline void unlock()
     {
-        if (m_mainLoop) {
-            if (--m_lockCount == 0)
-                pa_threaded_mainloop_unlock(m_mainLoop);
-        }
+        if (m_mainLoop)
+            pa_threaded_mainloop_unlock(m_mainLoop);
     }
 
     inline pa_context *context() const
@@ -253,7 +248,6 @@ private:
     pa_context *m_context;
     pa_threaded_mainloop *m_mainLoop;
     pa_mainloop_api *m_mainLoopApi;
-    uint m_lockCount;
     QAtomicInt m_ref;
 };
 
