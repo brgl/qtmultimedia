@@ -92,7 +92,7 @@ inline pa_sample_spec audioFormatToSampleSpec(const QAudioFormat &format)
     return spec;
 }
 
-class PulseDaemon : public QObject
+class PulseDaemon : public QObject, public QBasicMutex
 {
     Q_OBJECT
 public:
@@ -256,23 +256,6 @@ private:
 Q_GLOBAL_STATIC(PulseDaemon, pulseDaemon)
 Q_GLOBAL_STATIC(QSampleCache, sampleCache)
 
-namespace
-{
-class PulseDaemonLocker
-{
-public:
-    PulseDaemonLocker()
-    {
-        pulseDaemon()->lock();
-    }
-
-    ~PulseDaemonLocker()
-    {
-        pulseDaemon()->unlock();
-    }
-};
-}
-
 class QSoundEffectRef
 {
 public:
@@ -399,7 +382,7 @@ void QSoundEffectPrivate::setCategory(const QString &category)
     if (m_category != category) {
         m_category = category;
 
-        PulseDaemonLocker locker;
+        QMutexLocker locker(pulseDaemon());
 
         if (m_playing || m_playQueued) {
             // Currently playing, we need to disconnect when
@@ -446,7 +429,7 @@ void QSoundEffectPrivate::setSource(const QUrl &url)
     qDebug() << this << "setSource =" << url;
 #endif
 
-    PulseDaemonLocker locker;
+    QMutexLocker locker(pulseDaemon());
 
     // Make sure the stream is empty before loading a new source (otherwise whatever is there will
     // be played before the new source)
@@ -515,7 +498,7 @@ void QSoundEffectPrivate::setLoopCount(int loopCount)
         loopCount = 1;
     m_loopCount = loopCount;
     if (m_playing) {
-        PulseDaemonLocker locker;
+        QMutexLocker locker(pulseDaemon());
         setLoopsRemaining(loopCount);
     }
 }
@@ -619,7 +602,7 @@ void QSoundEffectPrivate::playAvailable()
     if (m_status == QSoundEffect::Null || m_status == QSoundEffect::Error || m_playQueued)
         return;
 
-    PulseDaemonLocker locker;
+    QMutexLocker locker(pulseDaemon());
 
     if (!m_pulseStream || m_status != QSoundEffect::Ready || m_stopping || m_emptying) {
 #ifdef QT_PA_DEBUG
@@ -656,7 +639,7 @@ void QSoundEffectPrivate::emptyStream(EmptyStreamOptions options)
     pa_stream_success_cb_t flushCompleteCb = reloadSample ? stream_flush_reload_callback
                                                           : stream_flush_callback;
 
-    PulseDaemonLocker locker;
+    QMutexLocker locker(pulseDaemon());
 
     m_emptying = true;
     pa_stream_set_write_callback(m_pulseStream, 0, 0);
@@ -674,7 +657,7 @@ void QSoundEffectPrivate::emptyComplete(void *stream, bool reload)
     qDebug() << this << "emptyComplete";
 #endif
 
-    PulseDaemonLocker locker;
+    QMutexLocker locker(pulseDaemon());
 
     m_emptying = false;
 
@@ -689,7 +672,7 @@ void QSoundEffectPrivate::emptyComplete(void *stream, bool reload)
 
 void QSoundEffectPrivate::sampleReady()
 {
-    PulseDaemonLocker locker;
+    QMutexLocker locker(pulseDaemon());
 
     // The slot might be called right after a new call to setSource().
     // In this case, the sample has been reset and the slot is being called for the previous sample.
@@ -761,7 +744,7 @@ void QSoundEffectPrivate::unloadPulseStream()
     qDebug() << this << "unloadPulseStream";
 #endif
     m_sinkInputId = -1;
-    PulseDaemonLocker locker;
+    QMutexLocker locker(pulseDaemon());
     if (m_pulseStream) {
         pa_stream_set_state_callback(m_pulseStream, 0, 0);
         pa_stream_set_write_callback(m_pulseStream, 0, 0);
@@ -778,7 +761,7 @@ void QSoundEffectPrivate::prepare()
 {
     if (!m_pulseStream || !m_sampleReady)
         return;
-    PulseDaemonLocker locker;
+    QMutexLocker locker(pulseDaemon());
 
     if (pa_stream_get_state(m_pulseStream) != PA_STREAM_READY)
         return;
@@ -904,7 +887,7 @@ int QSoundEffectPrivate::writeToStream(const void *data, int size)
 
 void QSoundEffectPrivate::playSample()
 {
-    PulseDaemonLocker locker;
+    QMutexLocker locker(pulseDaemon());
 
 #ifdef QT_PA_DEBUG
     qDebug() << this << "playSample";
@@ -924,7 +907,7 @@ void QSoundEffectPrivate::stop()
     if (!m_playing)
         return;
 
-    PulseDaemonLocker locker;
+    QMutexLocker locker(pulseDaemon());
 
     setPlaying(false);
 
@@ -948,7 +931,7 @@ void QSoundEffectPrivate::underRun()
 
 void QSoundEffectPrivate::streamReady()
 {
-    PulseDaemonLocker locker;
+    QMutexLocker locker(pulseDaemon());
 
     if (Q_UNLIKELY(!m_sample || m_sample->state() != QSample::Ready
                    || !m_pulseStream || pa_stream_get_state(m_pulseStream) != PA_STREAM_READY)) {
@@ -1011,7 +994,7 @@ void QSoundEffectPrivate::createPulseStream()
 void QSoundEffectPrivate::contextReady()
 {
     disconnect(pulseDaemon(), SIGNAL(contextReady()), this, SLOT(contextReady()));
-    PulseDaemonLocker locker;
+    QMutexLocker locker(pulseDaemon());
     createPulseStream();
 }
 
